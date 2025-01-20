@@ -21,9 +21,8 @@ impl Storable for Message {
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 const MAX_VALUE_SIZE: u32 = 100;
 
-// Implement BoundedStorable for Proposal
 impl BoundedStorable for Message {
-    const MAX_SIZE: u32 = MAX_VALUE_SIZE; // Adjust the size as needed
+    const MAX_SIZE: u32 = MAX_VALUE_SIZE;
     const IS_FIXED_SIZE: bool = false;
 }
 
@@ -33,7 +32,7 @@ thread_local! {
 
     static MESSAGE_MAP: RefCell<StableBTreeMap<u64, Message, Memory>> = RefCell::new(
         StableBTreeMap::init(
-            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1))), // Use a different MemoryId if needed
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1))),
         )
     );
 
