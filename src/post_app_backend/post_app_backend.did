@@ -1,3 +1,19 @@
+type MessageEntry = record {
+    content: text;
+    timestamp: nat64;
+    author: text;
+};
+
+type Result = variant {
+    Ok;
+    Err: text;
+};
+
 service : {
-    "greet": (text) -> (text) query;
-}
+    "store_message": (text: text, author: text) -> (nat64);
+    "retrieve_messages": () -> (vec record { text; nat64; text }) query;
+    "get_messages_by_author": (author: text) -> (vec record { text; nat64 }) query;
+    "update_message": (position: nat64, updated_text: text, author: text) -> (Result);
+    "remove_message": (position: nat64, author: text) -> (Result);
+    "get_message_count": () -> (nat64) query;
+};
