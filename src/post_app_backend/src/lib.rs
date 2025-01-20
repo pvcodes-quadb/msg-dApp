@@ -1,106 +1,77 @@
-use ic_cdk::{export_candid, query, storage, update};
-use std::cell::RefCell;
+use candid::{CandidType, Decode, Deserialize, Encode};
+use ic_stable_structures::memory_manager::{MemoryId, MemoryManager, VirtualMemory};
+use ic_stable_structures::{BoundedStorable, DefaultMemoryImpl, StableBTreeMap, Storable};
+use std::{borrow::Cow, cell::RefCell};
 
-#[derive(Clone)]
-struct MessageEntry {
-    content: String,
-    timestamp: u64,
-    author: String,
+#[derive(CandidType, Deserialize)]
+struct Message {
+    message: String,
+}
+
+impl Storable for Message {
+    fn to_bytes(&self) -> Cow<[u8]> {
+        Cow::Owned(Encode!(self).unwrap())
+    }
+
+    fn from_bytes(bytes: Cow<[u8]>) -> Self {
+        Decode!(bytes.as_ref(), Self).unwrap()
+    }
+}
+
+type Memory = VirtualMemory<DefaultMemoryImpl>;
+const MAX_VALUE_SIZE: u32 = 100;
+
+// Implement BoundedStorable for Proposal
+impl BoundedStorable for Message {
+    const MAX_SIZE: u32 = MAX_VALUE_SIZE; // Adjust the size as needed
+    const IS_FIXED_SIZE: bool = false;
 }
 
 thread_local! {
-    static MESSAGE_STORE: RefCell<Vec<MessageEntry>> = RefCell::new(Vec::new());
+    static MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> =
+    RefCell::new(MemoryManager::init(DefaultMemoryImpl::default()));
+
+    static MESSAGE_MAP: RefCell<StableBTreeMap<u64, Message, Memory>> = RefCell::new(
+        StableBTreeMap::init(
+            MEMORY_MANAGER.with(|m| m.borrow().get(MemoryId::new(1))), // Use a different MemoryId if needed
+        )
+    );
+
 }
 
-#[update]
-fn store_message(text: String, author: String) -> u64 {
-    let timestamp = ic_cdk::api::time();
-    let entry = MessageEntry {
-        content: text,
-        timestamp,
-        author,
-    };
-
-    MESSAGE_STORE.with(|store| {
-        let mut store = store.borrow_mut();
-        store.push(entry);
-        storage::stable_save((store.clone(),)).unwrap_or_else(|_| panic!("Storage failure"));
-        (store.len() - 1) as u64
-    })
+#[ic_cdk_macros::query]
+fn get_message(key: u64) -> Option<Message> {
+    MESSAGE_MAP.with(|p| p.borrow().get(&key))
 }
 
-#[query]
-fn retrieve_messages() -> Vec<(String, u64, String)> {
-    MESSAGE_STORE.with(|store| {
-        store
-            .borrow()
-            .iter()
-            .map(|entry| (entry.content.clone(), entry.timestamp, entry.author.clone()))
-            .collect()
-    })
+#[ic_cdk_macros::update]
+fn create_message(key: u64, message: String) -> Option<Message> {
+    let value = Message { message };
+    MESSAGE_MAP.with(|p| p.borrow_mut().insert(key, value))
 }
 
-// Added filter by author functionality
-#[query]
-fn get_messages_by_author(author: String) -> Vec<(String, u64)> {
-    MESSAGE_STORE.with(|store| {
-        store
-            .borrow()
-            .iter()
-            .filter(|entry| entry.author == author)
-            .map(|entry| (entry.content.clone(), entry.timestamp))
-            .collect()
-    })
+#[ic_cdk_macros::update]
+fn update_message(key: u64, message: String) -> Option<Message> {
+    let value = Message { message };
+    MESSAGE_MAP.with(|p| p.borrow_mut().insert(key, value))
 }
 
-#[update]
-fn update_message(
-    position: usize,
-    updated_text: String,
-    author: String,
-) -> Result<(), &'static str> {
-    MESSAGE_STORE.with(|store| {
-        let mut store = store.borrow_mut();
-        if position >= store.len() {
-            return Err("Invalid message position");
+#[ic_cdk_macros::update]
+fn delete_message(key: u64) -> Option<Message> {
+    MESSAGE_MAP.with(|p| p.borrow_mut().remove(&key))
+}
+
+#[ic_cdk_macros::query]
+fn get_all_messages() -> Option<Vec<(u64, Message)>> {
+    MESSAGE_MAP.with(|map| {
+        let map = map.borrow();
+        let messages: Vec<(u64, Message)> = map.iter()
+            .collect();
+        if messages.is_empty() {
+            None
+        } else {
+            Some(messages)
         }
-
-        // Only allow updates if the author matches
-        if store[position].author != author {
-            return Err("Unauthorized: only the author can modify the message");
-        }
-
-        store[position].content = updated_text;
-        store[position].timestamp = ic_cdk::api::time(); // Update timestamp on modification
-
-        storage::stable_save((store.clone(),)).unwrap_or_else(|_| panic!("Storage failure"));
-        Ok(())
     })
 }
 
-#[update]
-fn remove_message(position: usize, author: String) -> Result<(), &'static str> {
-    MESSAGE_STORE.with(|store| {
-        let mut store = store.borrow_mut();
-        if position >= store.len() {
-            return Err("Invalid message position");
-        }
-
-        // Only allow deletion if the author matches
-        if store[position].author != author {
-            return Err("Unauthorized: only the author can delete the message");
-        }
-
-        store.remove(position);
-        storage::stable_save((store.clone(),)).unwrap_or_else(|_| panic!("Storage failure"));
-        Ok(())
-    })
-}
-
-// Added new function to get message count
-#[query]
-fn get_message_count() -> usize {
-    MESSAGE_STORE.with(|store| store.borrow().len())
-}
-
-export_candid!();
