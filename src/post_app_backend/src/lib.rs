@@ -47,6 +47,11 @@ fn get_message(key: u64) -> Option<Message> {
 #[ic_cdk_macros::update]
 fn create_message(key: u64, message: String) -> Option<Message> {
     let value = Message { message };
+    // MESSAGE_MAP
+    let does_exist: bool = MESSAGE_MAP.with(|m| m.borrow().contains_key(&key));
+    if does_exist {
+        return None;
+    }
     MESSAGE_MAP.with(|p| p.borrow_mut().insert(key, value))
 }
 
